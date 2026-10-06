@@ -1,0 +1,64 @@
+name: Auto Merge Develop to Main
+
+on:
+  push:
+    branches:
+      - develop
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: auto-merge-develop
+  cancel-in-progress: false
+
+jobs:
+  build-and-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Create or update PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+            set -euo pipefail
+            pr_number=$(gh pr list --head develop --base main --json number -q '.[0].number // empty')
+            if [ -n "${pr_number}" ]; then
+              echo "PR from develop to main already exists (#${pr_number})."
+            else
+              gh pr create \
+                -H develop \
+                -B main \
+                -t "Merge develop into main" \
+                -b "Automated PR triggered by push to develop."
+            fi
+
+
+      - name: Merge PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+            set -euo pipefail
+            pr_number=$(gh pr list --head develop --base main --json number -q '.[0].number // empty')
+            if [ -z "${pr_number}" ]; then
+              echo "No PR found for develop -> main."
+              exit 1
+            fi
+            gh pr merge "${pr_number}" --merge
